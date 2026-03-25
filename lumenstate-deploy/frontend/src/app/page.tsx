@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 // ============================================
-// CONFIGURACIÓN DE LA API ON RENDER
+// CONFIGURACIÓN DE LA API
 // ============================================
 const API_URL = "https://lumenstate1.onrender.com";
 
@@ -127,7 +127,6 @@ export default function LUMENSTATEApp() {
     
     setLoading(true);
     
-    // IMPORTANTE: Nombres de parámetros que espera el backend
     fetch(`${API_URL}/predict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -163,13 +162,22 @@ export default function LUMENSTATEApp() {
     });
   }, [alturaEdificios, distanciaEdificios, orientacion, horasSol, factorEstacional]);
 
-  // Escenarios predefinidos
-  const escenarioGarantizado = predecirSaludLocal({
-    alturaEdificios: 10, distanciaEdificios: 30, orientacion: 180, horasSol: 8, factorEstacional: 1.0
+  // Escenario IDEAL (referencia óptima)
+  const escenarioIdeal = predecirSaludLocal({
+    alturaEdificios: 10,
+    distanciaEdificios: 30,
+    orientacion: 180,
+    horasSol: 8,
+    factorEstacional: 1.0
   });
   
-  const escenarioRestringido = predecirSaludLocal({
-    alturaEdificios: 45, distanciaEdificios: 10, orientacion: 0, horasSol: 3, factorEstacional: 0.8
+  // Escenario ACTUAL (lo que el usuario configura)
+  const escenarioActual = prediccion || predecirSaludLocal({
+    alturaEdificios,
+    distanciaEdificios,
+    orientacion,
+    horasSol,
+    factorEstacional
   });
 
   const getEstadoColor = (estado: string) => {
@@ -391,39 +399,56 @@ export default function LUMENSTATEApp() {
         {/* Tab: Comparación */}
         {tab === 'comparacion' && (
           <div className="space-y-6">
+            {/* Título explicativo */}
+            <div className="text-center mb-4">
+              <p className="text-gray-600">
+                Compara tu escenario actual contra el escenario ideal de referencia
+              </p>
+            </div>
+            
             <div className="grid lg:grid-cols-2 gap-6">
-              {/* Luz Garantizada */}
-              <Card className="border-green-200">
-                <div className="p-4 bg-green-50 rounded-t-xl">
-                  <h3 className="text-green-700 font-bold flex items-center gap-2">
-                    ☀️ Luz Garantizada (Densidad Baja)
+              {/* Tu Escenario Actual */}
+              <Card className="border-2 border-amber-300">
+                <div className="p-4 bg-amber-50 rounded-t-xl">
+                  <h3 className="text-amber-700 font-bold flex items-center gap-2">
+                    🏠 Tu Escenario Actual
                   </h3>
+                  <p className="text-xs text-amber-600 mt-1">
+                    {alturaEdificios}m altura · {distanciaEdificios}m distancia · {
+                      orientacion === 0 ? 'Norte' : orientacion === 90 ? 'Este' : orientacion === 180 ? 'Sur' : orientacion === 270 ? 'Oeste' : `${orientacion}°`
+                    } · {horasSol}h sol
+                  </p>
                 </div>
                 <div className="p-6 text-center">
-                  <div className="text-5xl font-bold text-green-600">{escenarioGarantizado.salud_biologica_pct}%</div>
-                  <Badge className={`mt-2 ${getEstadoColor(escenarioGarantizado.estado)}`}>
-                    {escenarioGarantizado.estado}
+                  <div className={`text-5xl font-bold ${getSaludColor(escenarioActual.salud_biologica_pct)}`}>
+                    {escenarioActual.salud_biologica_pct}%
+                  </div>
+                  <Badge className={`mt-2 ${getEstadoColor(escenarioActual.estado)}`}>
+                    {escenarioActual.estado}
                   </Badge>
                   <div className="mt-4 text-sm text-gray-500">
-                    Lux: {escenarioGarantizado.lux_calculado.toLocaleString()}
+                    Lux: {escenarioActual.lux_calculado.toLocaleString()}
                   </div>
                 </div>
               </Card>
 
-              {/* Luz Restringida */}
-              <Card className="border-red-200">
-                <div className="p-4 bg-red-50 rounded-t-xl">
-                  <h3 className="text-red-700 font-bold flex items-center gap-2">
-                    🏢 Luz Restringida (Densidad Alta)
+              {/* Escenario Ideal */}
+              <Card className="border-green-200">
+                <div className="p-4 bg-green-50 rounded-t-xl">
+                  <h3 className="text-green-700 font-bold flex items-center gap-2">
+                    ☀️ Escenario Ideal (Referencia)
                   </h3>
+                  <p className="text-xs text-green-600 mt-1">
+                    10m altura · 30m distancia · Sur · 8h sol
+                  </p>
                 </div>
                 <div className="p-6 text-center">
-                  <div className="text-5xl font-bold text-red-600">{escenarioRestringido.salud_biologica_pct}%</div>
-                  <Badge className={`mt-2 ${getEstadoColor(escenarioRestringido.estado)}`}>
-                    {escenarioRestringido.estado}
+                  <div className="text-5xl font-bold text-green-600">{escenarioIdeal.salud_biologica_pct}%</div>
+                  <Badge className={`mt-2 ${getEstadoColor(escenarioIdeal.estado)}`}>
+                    {escenarioIdeal.estado}
                   </Badge>
                   <div className="mt-4 text-sm text-gray-500">
-                    Lux: {escenarioRestringido.lux_calculado.toLocaleString()}
+                    Lux: {escenarioIdeal.lux_calculado.toLocaleString()}
                   </div>
                 </div>
               </Card>
@@ -437,23 +462,43 @@ export default function LUMENSTATEApp() {
                 </h3>
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div className="p-4 rounded-lg bg-green-50">
-                    <p className="text-sm text-gray-500">Garantizada</p>
-                    <p className="text-3xl font-bold text-green-600">{escenarioGarantizado.salud_biologica_pct}%</p>
+                    <p className="text-sm text-gray-500">Ideal</p>
+                    <p className="text-3xl font-bold text-green-600">{escenarioIdeal.salud_biologica_pct}%</p>
                   </div>
                   <div className="p-4 rounded-lg bg-orange-50">
                     <p className="text-sm text-gray-500">Déficit</p>
-                    <p className="text-3xl font-bold text-orange-600">
-                      {escenarioGarantizado.salud_biologica_pct - escenarioRestringido.salud_biologica_pct} pts
+                    <p className={`text-3xl font-bold ${
+                      (escenarioIdeal.salud_biologica_pct - escenarioActual.salud_biologica_pct) > 20 
+                        ? 'text-red-600' 
+                        : 'text-orange-600'
+                    }`}>
+                      {(escenarioIdeal.salud_biologica_pct - escenarioActual.salud_biologica_pct).toFixed(1)} pts
                     </p>
                   </div>
-                  <div className="p-4 rounded-lg bg-red-50">
-                    <p className="text-sm text-gray-500">Restringida</p>
-                    <p className="text-3xl font-bold text-red-600">{escenarioRestringido.salud_biologica_pct}%</p>
+                  <div className="p-4 rounded-lg bg-amber-50">
+                    <p className="text-sm text-gray-500">Tu Escenario</p>
+                    <p className={`text-3xl font-bold ${getSaludColor(escenarioActual.salud_biologica_pct)}`}>
+                      {escenarioActual.salud_biologica_pct}%
+                    </p>
                   </div>
                 </div>
-                <p className="mt-4 text-sm text-gray-600">
-                  <strong>Implicancia Jurídica:</strong> La densificación urbana puede vulnerar el derecho a la luz solar.
-                </p>
+                
+                {/* Alerta legal */}
+                <div className={`mt-4 p-4 rounded-lg ${
+                  (escenarioIdeal.salud_biologica_pct - escenarioActual.salud_biologica_pct) > 30 
+                    ? 'bg-red-50 border border-red-200' 
+                    : 'bg-gray-50'
+                }`}>
+                  <p className="text-sm text-gray-700">
+                    <strong>Implicancia Jurídica:</strong> {
+                      (escenarioIdeal.salud_biologica_pct - escenarioActual.salud_biologica_pct) > 30 
+                        ? 'El déficit supera los 30 puntos. Existe evidencia técnica de vulneración del derecho a la luz solar.' 
+                        : (escenarioIdeal.salud_biologica_pct - escenarioActual.salud_biologica_pct) > 15 
+                          ? 'Existe un déficit moderado que podría afectar la calidad de vida.' 
+                          : 'El escenario actual está cerca del ideal. No hay evidencia de vulneración significativa.'
+                    }
+                  </p>
+                </div>
               </div>
             </Card>
           </div>
