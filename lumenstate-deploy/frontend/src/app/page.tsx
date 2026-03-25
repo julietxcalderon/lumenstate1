@@ -1,11 +1,27 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 // ============================================
-// MODELO LOCAL (funciona sin API)
+// CONFIGURACIÓN DE LA API
 // ============================================
-function predecirSalud(params: {
+const API_URL = "https://lumenstate1.onrender.com";
+
+// ============================================
+// TIPOS
+// ============================================
+interface Prediccion {
+  salud_biologica_pct: number;
+  estado: string;
+  lux_calculado: number;
+  privacion_luminica: number;
+  modelo_r2: number;
+}
+
+// ============================================
+// MODELO LOCAL (fallback si la API falla)
+// ============================================
+function predecirSaludLocal(params: {
   alturaEdificios: number;
   distanciaEdificios: number;
   orientacion: number;
@@ -88,21 +104,76 @@ export default function LUMENSTATEApp() {
   const [horasSol, setHorasSol] = useState(6);
   const [factorEstacional, setFactorEstacional] = useState(1.0);
   
-  // Predicción
-  const prediccion = useMemo(() => predecirSalud({
-    alturaEdificios,
-    distanciaEdificios,
-    orientacion,
-    horasSol,
-    factorEstacional
-  }), [alturaEdificios, distanciaEdificios, orientacion, horasSol, factorEstacional]);
+  // Estado de la API y predicción
+  const [prediccion, setPrediccion] = useState<Prediccion | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
-  // Escenarios
-  const escenarioGarantizado = predecirSalud({
+  // Verificar estado de la API al cargar
+  useEffect(() => {
+    const checkAPI = async () => {
+      try {
+        const response = await fetch(`${API_URL}/docs`, { method: 'HEAD' });
+        setApiStatus(response.ok ? 'online' : 'offline');
+      } catch {
+        setApiStatus('offline');
+      }
+    };
+    checkAPI();
+  }, []);
+
+  // Función para llamar a la API
+  const fetchPrediccion = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${API_URL}/predecir`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          altura_edificio: alturaEdificios,
+          distancia_edificio: distanciaEdificios,
+          orientacion: orientacion,
+          horas_sol_directo: horasSol,
+          factor_estacional: factorEstacional
+        })
+      });
+      
+      if (!response.ok) throw new Error('Error en la API');
+      
+      const data = await response.json();
+      setPrediccion(data);
+    } catch (err) {
+      setError('API no disponible. Usando modelo local.');
+      setPrediccion(predecirSaludLocal({
+        alturaEdificios,
+        distanciaEdificios,
+        orientacion,
+        horasSol,
+        factorEstacional
+      }));
+    } finally {
+      setLoading(false);
+    }
+  }, [alturaEdificios, distanciaEdificios, orientacion, horasSol, factorEstacional]);
+
+  // Llamar a la API cuando cambien los parámetros
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchPrediccion();
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, [fetchPrediccion]);
+
+  // Escenarios predefinidos
+  const escenarioGarantizado = predecirSaludLocal({
     alturaEdificios: 10, distanciaEdificios: 30, orientacion: 180, horasSol: 8, factorEstacional: 1.0
   });
   
-  const escenarioRestringido = predecirSalud({
+  const escenarioRestringido = predecirSaludLocal({
     alturaEdificios: 45, distanciaEdificios: 10, orientacion: 0, horasSol: 3, factorEstacional: 0.8
   });
 
@@ -130,13 +201,26 @@ export default function LUMENSTATEApp() {
       {/* Header */}
       <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-              <span className="text-2xl">☀️</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                <span className="text-2xl">☀️</span>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">LUMENSTATE</h1>
+                <p className="text-sm text-gray-500">Digital Twin & Solar Advocacy</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">LUMENSTATE</h1>
-              <p className="text-sm text-gray-500">Digital Twin & Solar Advocacy</p>
+            
+            {/* Estado de la API */}
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${
+                apiStatus === 'online' ? 'bg-green-500' : 
+                apiStatus === 'offline' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'
+              }`} />
+              <span className="text-xs text-gray-500 hidden sm:inline">
+                API: {apiStatus === 'online' ? 'Conectado' : apiStatus === 'offline' ? 'Desconectado' : 'Verificando...'}
+              </span>
             </div>
           </div>
         </div>
@@ -251,39 +335,56 @@ export default function LUMENSTATEApp() {
                   🌿 Predicción del Gemelo Digital
                 </h3>
                 
+                {/* Error/Warning */}
+                {error && (
+                  <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-700">
+                    ⚠️ {error}
+                  </div>
+                )}
+                
+                {/* Loading */}
+                {loading && (
+                  <div className="text-center py-4">
+                    <div className="animate-spin w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full mx-auto" />
+                    <p className="text-sm text-gray-500 mt-2">Calculando...</p>
+                  </div>
+                )}
+
                 {/* Indicador principal */}
-                <div className="text-center p-6 rounded-xl bg-gray-50 mb-6">
-                  <div className={`text-7xl font-bold ${getSaludColor(prediccion.salud_biologica_pct)}`}>
-                    {prediccion.salud_biologica_pct}%
-                  </div>
-                  <p className="text-lg text-gray-600 mt-2">Salud Biológica</p>
-                  <Badge className={`mt-3 ${getEstadoColor(prediccion.estado)}`}>
-                    {prediccion.estado}
-                  </Badge>
-                </div>
+                {prediccion && !loading && (
+                  <>
+                    <div className="text-center p-6 rounded-xl bg-gray-50 mb-6">
+                      <div className={`text-7xl font-bold ${getSaludColor(prediccion.salud_biologica_pct)}`}>
+                        {prediccion.salud_biologica_pct}%
+                      </div>
+                      <p className="text-lg text-gray-600 mt-2">Salud Biológica</p>
+                      <Badge className={`mt-3 ${getEstadoColor(prediccion.estado)}`}>
+                        {prediccion.estado}
+                      </Badge>
+                    </div>
 
-                {/* Métricas */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-lg bg-amber-50">
-                    <p className="text-sm text-gray-500">☀️ Lux Promedio</p>
-                    <p className="text-2xl font-bold">{prediccion.lux_calculado.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-green-50">
-                    <p className="text-sm text-gray-500">📈 Eficiencia</p>
-                    <p className="text-2xl font-bold">
-                      {prediccion.salud_biologica_pct >= 80 ? 'Alta' : prediccion.salud_biologica_pct >= 50 ? 'Media' : 'Baja'}
-                    </p>
-                  </div>
-                </div>
+                    {/* Métricas */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 rounded-lg bg-amber-50">
+                        <p className="text-sm text-gray-500">☀️ Lux Promedio</p>
+                        <p className="text-2xl font-bold">{prediccion.lux_calculado.toLocaleString()}</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-blue-50">
+                        <p className="text-sm text-gray-500">📊 R² del Modelo</p>
+                        <p className="text-2xl font-bold">{prediccion.modelo_r2}</p>
+                      </div>
+                    </div>
 
-                {/* Alerta */}
-                {prediccion.estado === 'Critico' && (
-                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-                    <span className="text-xl">⚠️</span>
-                    <p className="text-sm text-red-700">
-                      ¡Alerta! Privación lumínica crítica. Derecho a la luz vulnerado.
-                    </p>
-                  </div>
+                    {/* Alerta */}
+                    {prediccion.estado === 'Critico' && (
+                      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+                        <span className="text-xl">⚠️</span>
+                        <p className="text-sm text-red-700">
+                          ¡Alerta! Privación lumínica crítica. Derecho a la luz vulnerado.
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </Card>
@@ -395,6 +496,11 @@ export default function LUMENSTATEApp() {
 {`Backend (Python/FastAPI) ←→ Frontend (Next.js/React)
         Render.com                    Vercel.com`}
                 </pre>
+              </div>
+
+              <div className="p-4 bg-amber-50 rounded-lg">
+                <h4 className="font-semibold mb-2">API Endpoint</h4>
+                <code className="text-sm text-gray-700 break-all">{API_URL}/predecir</code>
               </div>
             </div>
           </Card>
