@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // ============================================
 // CONFIGURACIÓN DE LA API
@@ -107,46 +107,47 @@ export default function LUMENSTATEApp() {
   // Estado de la API y predicción
   const [prediccion, setPrediccion] = useState<Prediccion | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [usandoLocal, setUsandoLocal] = useState(false);
+  
+  // Ref para evitar múltiples llamadas
+  const fetchingRef = useRef(false);
 
-  // Verificar estado de la API al cargar
+  // Verificar estado de la API al cargar (solo una vez)
   useEffect(() => {
-    const checkAPI = async () => {
-      try {
-        const response = await fetch(`${API_URL}/docs`, { method: 'HEAD' });
-        setApiStatus(response.ok ? 'online' : 'offline');
-      } catch {
-        setApiStatus('offline');
-      }
-    };
-    checkAPI();
+    fetch(`${API_URL}/health`)
+      .then(res => res.ok ? setApiStatus('online') : setApiStatus('offline'))
+      .catch(() => setApiStatus('offline'));
   }, []);
 
-  // Función para llamar a la API
-  const fetchPrediccion = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // Efecto para llamar a la API
+  useEffect(() => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     
-    try {
-      const response = await fetch(`${API_URL}/predecir`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          altura_edificio: alturaEdificios,
-          distancia_edificio: distanciaEdificios,
-          orientacion: orientacion,
-          horas_sol_directo: horasSol,
-          factor_estacional: factorEstacional
-        })
-      });
-      
-      if (!response.ok) throw new Error('Error en la API');
-      
-      const data = await response.json();
+    setLoading(true);
+    
+    // IMPORTANTE: Nombres de parámetros que espera el backend
+    fetch(`${API_URL}/predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        altura_edificios_m: alturaEdificios,
+        distancia_edificios_m: distanciaEdificios,
+        orientacion_grados: orientacion,
+        horas_sol_directo: horasSol,
+        factor_estacional: factorEstacional
+      })
+    })
+    .then(res => {
+      if (!res.ok) throw new Error('API error');
+      return res.json();
+    })
+    .then(data => {
       setPrediccion(data);
-    } catch (err) {
-      setError('API no disponible. Usando modelo local.');
+      setUsandoLocal(false);
+    })
+    .catch(() => {
       setPrediccion(predecirSaludLocal({
         alturaEdificios,
         distanciaEdificios,
@@ -154,19 +155,13 @@ export default function LUMENSTATEApp() {
         horasSol,
         factorEstacional
       }));
-    } finally {
+      setUsandoLocal(true);
+    })
+    .finally(() => {
       setLoading(false);
-    }
+      fetchingRef.current = false;
+    });
   }, [alturaEdificios, distanciaEdificios, orientacion, horasSol, factorEstacional]);
-
-  // Llamar a la API cuando cambien los parámetros
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchPrediccion();
-    }, 300);
-    
-    return () => clearTimeout(timer);
-  }, [fetchPrediccion]);
 
   // Escenarios predefinidos
   const escenarioGarantizado = predecirSaludLocal({
@@ -180,9 +175,11 @@ export default function LUMENSTATEApp() {
   const getEstadoColor = (estado: string) => {
     switch (estado) {
       case 'Optimo': return 'bg-green-500';
+      case 'Óptimo': return 'bg-green-500';
       case 'Aceptable': return 'bg-yellow-500';
       case 'Deficiente': return 'bg-orange-500';
       case 'Critico': return 'bg-red-500';
+      case 'Crítico': return 'bg-red-500';
       default: return 'bg-gray-500';
     }
   };
@@ -335,10 +332,10 @@ export default function LUMENSTATEApp() {
                   🌿 Predicción del Gemelo Digital
                 </h3>
                 
-                {/* Error/Warning */}
-                {error && (
+                {/* Aviso modelo local */}
+                {usandoLocal && (
                   <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-700">
-                    ⚠️ {error}
+                    ⚠️ Usando modelo local (API no disponible)
                   </div>
                 )}
                 
@@ -376,7 +373,7 @@ export default function LUMENSTATEApp() {
                     </div>
 
                     {/* Alerta */}
-                    {prediccion.estado === 'Critico' && (
+                    {(prediccion.estado === 'Critico' || prediccion.estado === 'Crítico') && (
                       <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
                         <span className="text-xl">⚠️</span>
                         <p className="text-sm text-red-700">
@@ -500,7 +497,7 @@ export default function LUMENSTATEApp() {
 
               <div className="p-4 bg-amber-50 rounded-lg">
                 <h4 className="font-semibold mb-2">API Endpoint</h4>
-                <code className="text-sm text-gray-700 break-all">{API_URL}/predecir</code>
+                <code className="text-sm text-gray-700 break-all">{API_URL}/predict</code>
               </div>
             </div>
           </Card>
