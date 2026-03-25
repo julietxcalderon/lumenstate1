@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 // ============================================
-// CONFIGURACIÓN DE LA API
+// CONFIGURACIÓN DE LA API ON RENDER
 // ============================================
 const API_URL = "https://lumenstate1.onrender.com";
 
